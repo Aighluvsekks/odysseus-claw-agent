@@ -790,3 +790,33 @@ def setup_claude_routes() -> APIRouter:
         return StreamingResponse(buf, media_type="application/zip", headers=headers)
 
     return router
+
+
+def setup_claw_routes() -> APIRouter:
+    """Serve the Claw Code skill bundle.
+
+    Claw Code uses the same scope-gated `/api/codex/*` endpoints at runtime;
+    this router only exists to deliver the skill zip via `/api/claw/plugin.zip`
+    so the user-facing setup commands stay in the Claw namespace. The bundle
+    extracts to `~/.claw/skills/odysseus/`, one of Claw's auto-discovery roots.
+    """
+    router = APIRouter(prefix="/api/claw", tags=["claw"])
+
+    @router.get("/plugin.zip")
+    def plugin_zip(request: Request):
+        require_authenticated_request(request)
+        skills_root = Path(__file__).resolve().parent.parent / "integrations" / "claw" / "skills"
+        if not skills_root.exists():
+            raise HTTPException(404, "Claw skill bundle not found")
+        bundle_root = skills_root.parent
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for path in sorted(skills_root.rglob("*")):
+                if path.is_dir() or "__pycache__" in path.parts or path.suffix == ".pyc":
+                    continue
+                zf.write(path, path.relative_to(bundle_root))
+        buf.seek(0)
+        headers = {"Content-Disposition": 'attachment; filename="odysseus-claw-skill.zip"'}
+        return StreamingResponse(buf, media_type="application/zip", headers=headers)
+
+    return router
